@@ -587,6 +587,9 @@ class TranscriptionSettings:
     def assemblyai_speech_model(self):
         return self._settings.get("assembly_ai", {}).get("speech_model", None)
 
+    def assemblyai_speech_models(self):
+        return self._settings.get("assembly_ai", {}).get("speech_models", None)
+
     def assemblyai_speaker_labels(self):
         return self._settings.get("assembly_ai", {}).get("speaker_labels", False)
 
@@ -885,6 +888,21 @@ class Bot(models.Model):
         websocket_settings = self.settings.get("websocket_settings") or {}
         websocket_per_participant_audio_settings = websocket_settings.get("per_participant_audio") or {}
         return websocket_per_participant_audio_settings.get("sample_rate", 16000)
+
+    def websocket_per_participant_video_url(self):
+        websocket_settings = self.settings.get("websocket_settings") or {}
+        websocket_per_participant_video_settings = websocket_settings.get("per_participant_video") or {}
+        return websocket_per_participant_video_settings.get("url")
+
+    def websocket_per_participant_video_webcam_resolution(self):
+        websocket_settings = self.settings.get("websocket_settings") or {}
+        websocket_per_participant_video_settings = websocket_settings.get("per_participant_video") or {}
+        return websocket_per_participant_video_settings.get("webcam_resolution", "360p")
+
+    def websocket_per_participant_video_screenshare_resolution(self):
+        websocket_settings = self.settings.get("websocket_settings") or {}
+        websocket_per_participant_video_settings = websocket_settings.get("per_participant_video") or {}
+        return websocket_per_participant_video_settings.get("screenshare_resolution", "360p")
 
     def voice_agent_url(self):
         voice_agent_settings = self.settings.get("voice_agent_settings", {}) or {}
@@ -1198,6 +1216,7 @@ class RealtimeTriggerTypes(models.IntegerChoices):
     MIXED_AUDIO_CHUNK = 101, "Mixed audio chunk"
     BOT_OUTPUT_AUDIO_CHUNK = 102, "Bot output audio chunk"
     PER_PARTICIPANT_AUDIO_CHUNK = 103, "Per participant audio chunk"
+    PER_PARTICIPANT_VIDEO_FRAME = 104, "Per participant video frame"
 
     @classmethod
     def type_to_api_code(cls, value):
@@ -1206,6 +1225,7 @@ class RealtimeTriggerTypes(models.IntegerChoices):
             cls.MIXED_AUDIO_CHUNK: "realtime_audio.mixed",
             cls.BOT_OUTPUT_AUDIO_CHUNK: "realtime_audio.bot_output",
             cls.PER_PARTICIPANT_AUDIO_CHUNK: "realtime_audio.per_participant",
+            cls.PER_PARTICIPANT_VIDEO_FRAME: "realtime_video.per_participant",
         }
         return mapping.get(value)
 
@@ -1260,6 +1280,9 @@ class BotEventSubTypes(models.IntegerChoices):
     LEAVE_REQUESTED_AUTO_LEAVE_COULD_NOT_ENABLE_CLOSED_CAPTIONS = 26, "Leave requested - Auto leave could not enable closed captions"
     COULD_NOT_JOIN_MEETING_AUTHORIZED_USER_NOT_IN_MEETING_TIMEOUT_EXCEEDED = 27, "Bot could not join meeting - Authorized user not in meeting timeout exceeded. See https://developers.zoom.us/blog/transition-to-obf-token-meetingsdk-apps/"
     COULD_NOT_JOIN_MEETING_BLOCKED_BY_CAPTCHA = 28, "Bot could not join meeting - Blocked by captcha (Verification challenge)."
+    BOT_RECORDING_PERMISSION_DENIED_WEBINAR_ATTENDEE_NEEDS_PANELIST_PROMOTION = 29, "Bot recording permission denied - Bot joined webinar as attendee and needs to be promoted to panelist to record"
+    COULD_NOT_JOIN_MEETING_ZOOM_APP_CANNOT_JOIN_ANONYMOUSLY = 30, "Bot could not join Zoom meeting - Zoom app cannot join anonymously. To fix pass OBF or ZAK token. See https://docs.attendee.dev/guides/zoom/zoomoauth"
+    FATAL_ERROR_GLOBAL_RUNTIME_TIMEOUT = 31, "Fatal error - Global runtime timeout"
 
     @classmethod
     def sub_type_to_api_code(cls, value):
@@ -1293,6 +1316,9 @@ class BotEventSubTypes(models.IntegerChoices):
             cls.LEAVE_REQUESTED_AUTO_LEAVE_COULD_NOT_ENABLE_CLOSED_CAPTIONS: "auto_leave_could_not_enable_closed_captions",
             cls.COULD_NOT_JOIN_MEETING_AUTHORIZED_USER_NOT_IN_MEETING_TIMEOUT_EXCEEDED: "authorized_user_not_in_meeting_timeout_exceeded",
             cls.COULD_NOT_JOIN_MEETING_BLOCKED_BY_CAPTCHA: "blocked_by_captcha",
+            cls.BOT_RECORDING_PERMISSION_DENIED_WEBINAR_ATTENDEE_NEEDS_PANELIST_PROMOTION: "webinar_attendee_needs_panelist_promotion",
+            cls.COULD_NOT_JOIN_MEETING_ZOOM_APP_CANNOT_JOIN_ANONYMOUSLY: "zoom_app_cannot_join_anonymously",
+            cls.FATAL_ERROR_GLOBAL_RUNTIME_TIMEOUT: "global_runtime_timeout",
         }
         return mapping.get(value)
 
@@ -1333,7 +1359,7 @@ class BotEvent(models.Model):
             models.CheckConstraint(
                 check=(
                     # For FATAL_ERROR event type, must have one of the valid event subtypes
-                    (Q(event_type=BotEventTypes.FATAL_ERROR) & (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_ATTENDEE_INTERNAL_ERROR) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_OUT_OF_CREDITS) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_BOT_NOT_LAUNCHED)))
+                    (Q(event_type=BotEventTypes.FATAL_ERROR) & (Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_PROCESS_TERMINATED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_ATTENDEE_INTERNAL_ERROR) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_OUT_OF_CREDITS) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_RTMP_CONNECTION_FAILED) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_UI_ELEMENT_NOT_FOUND) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_HEARTBEAT_TIMEOUT) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_GLOBAL_RUNTIME_TIMEOUT) | Q(event_sub_type=BotEventSubTypes.FATAL_ERROR_BOT_NOT_LAUNCHED)))
                     |
                     # For COULD_NOT_JOIN event type, must have one of the valid event subtypes
                     (
@@ -1352,6 +1378,7 @@ class BotEvent(models.Model):
                             | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_REQUEST_TO_JOIN_DENIED)
                             | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_MEETING_NOT_FOUND)
                             | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_BLOCKED_BY_CAPTCHA)
+                            | Q(event_sub_type=BotEventSubTypes.COULD_NOT_JOIN_MEETING_ZOOM_APP_CANNOT_JOIN_ANONYMOUSLY)
                         )
                     )
                     |
@@ -1359,7 +1386,7 @@ class BotEvent(models.Model):
                     (Q(event_type=BotEventTypes.LEAVE_REQUESTED) & (Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_USER_REQUESTED) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_SILENCE) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_ONLY_PARTICIPANT_IN_MEETING) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_MAX_UPTIME_EXCEEDED) | Q(event_sub_type=BotEventSubTypes.LEAVE_REQUESTED_AUTO_LEAVE_COULD_NOT_ENABLE_CLOSED_CAPTIONS) | Q(event_sub_type__isnull=True)))
                     |
                     # For BOT_RECORDING_PERMISSION_DENIED event type, must have one of the valid event subtypes
-                    (Q(event_type=BotEventTypes.BOT_RECORDING_PERMISSION_DENIED) & (Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_HOST_DENIED_PERMISSION) | Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_REQUEST_TIMED_OUT) | Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_HOST_CLIENT_CANNOT_GRANT_PERMISSION)))
+                    (Q(event_type=BotEventTypes.BOT_RECORDING_PERMISSION_DENIED) & (Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_HOST_DENIED_PERMISSION) | Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_REQUEST_TIMED_OUT) | Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_HOST_CLIENT_CANNOT_GRANT_PERMISSION) | Q(event_sub_type=BotEventSubTypes.BOT_RECORDING_PERMISSION_DENIED_WEBINAR_ATTENDEE_NEEDS_PANELIST_PROMOTION)))
                     |
                     # For all other events, event_sub_type must be null
                     (~Q(event_type=BotEventTypes.FATAL_ERROR) & ~Q(event_type=BotEventTypes.COULD_NOT_JOIN) & ~Q(event_type=BotEventTypes.LEAVE_REQUESTED) & Q(event_sub_type__isnull=True))
@@ -1862,6 +1889,7 @@ class BotLogEntryLevels(models.IntegerChoices):
 class BotLogEntryTypes(models.IntegerChoices):
     UNCATEGORIZED = 0, "Uncategorized"
     COULD_NOT_ENABLE_CLOSED_CAPTIONS = 1, "Could not enable closed captions"
+    WEBINAR_PANELIST_PROMOTION = 2, "Webinar panelist promotion"
 
     @classmethod
     def type_to_api_code(cls, value):
@@ -1869,6 +1897,7 @@ class BotLogEntryTypes(models.IntegerChoices):
         mapping = {
             cls.UNCATEGORIZED: "uncategorized",
             cls.COULD_NOT_ENABLE_CLOSED_CAPTIONS: "could_not_enable_closed_captions",
+            cls.WEBINAR_PANELIST_PROMOTION: "webinar_panelist_promotion",
         }
         return mapping.get(value)
 
@@ -2570,6 +2599,7 @@ class MediaBlob(models.Model):
     VALID_VIDEO_CONTENT_TYPES = []
     VALID_IMAGE_CONTENT_TYPES = [
         ("image/png", "PNG Image"),
+        ("image/jpeg", "JPEG Image"),
     ]
 
     OBJECT_ID_PREFIX = "blob_"
